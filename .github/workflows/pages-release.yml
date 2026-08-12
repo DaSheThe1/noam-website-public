@@ -1,0 +1,91 @@
+name: Release approved static artifact to GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_commit:
+        description: Full reviewed commit in this public mirror
+        required: true
+        type: string
+      private_source_commit:
+        description: Full approved private source commit recorded by the handoff
+        required: true
+        type: string
+      static_provenance_sha256:
+        description: Approved SHA-256 of site/.foundation-provenance.json
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate immutable inputs
+        shell: bash
+        env:
+          PUBLIC_COMMIT: ${{ inputs.public_commit }}
+          PRIVATE_SOURCE_COMMIT: ${{ inputs.private_source_commit }}
+          STATIC_PROVENANCE_SHA256: ${{ inputs.static_provenance_sha256 }}
+          TRIGGER_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLIC_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRIVATE_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$STATIC_PROVENANCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$TRIGGER_COMMIT" = "$PUBLIC_COMMIT"
+      - name: Check out exact public commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.public_commit }}
+          persist-credentials: false
+      - name: Verify reviewed Pages handoff and artifact
+        shell: bash
+        env:
+          PAGES_SITE_DIR: ${{ github.workspace }}/site
+          PAGES_HANDOFF_FILE: ${{ github.workspace }}/foundation/pages-publication.json
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.private_source_commit }}
+          EXPECTED_PROVENANCE_SHA256: ${{ inputs.static_provenance_sha256 }}
+          PUBLIC_COMMIT: ${{ inputs.public_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PUBLIC_COMMIT"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          ./scripts/verify-pages-artifact.sh
+      - name: Create exact Pages archive including reviewed dotfiles
+        shell: bash
+        env:
+          PAGES_SITE_DIR: ${{ github.workspace }}/site
+          PAGES_ARCHIVE_FILE: ${{ runner.temp }}/artifact.tar
+        run: ./scripts/create-pages-archive.sh
+      - name: Upload exact Pages archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages inside the protected deployment job
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        with:
+          enablement: false
+      - name: Deploy after protected-environment approval
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
