@@ -76,10 +76,7 @@ fi
 declare -A declared_paths=()
 for entry in "${declared_files[@]}"; do
   IFS=$'\t' read -r relative expected_digest <<<"$entry"
-  # Next.js static exports use `!` in internal RSC payload filenames such as
-  # `__next.!KHJvb3Qp.__PAGE__.txt`. Keep the allowlist narrow, but accept that
-  # literal filename character so a reviewed Next artifact can be published.
-  if [[ ! "$relative" =~ ^[A-Za-z0-9._/!\-]+$ ]] ||
+  if [[ ! "$relative" =~ ^[A-Za-z0-9._/-]+$ ]] ||
     [[ "$relative" == /* || "$relative" == ./* || "$relative" == */./* ]] ||
     [[ "$relative" == ".." || "$relative" == ../* || "$relative" == */../* ]] ||
     [[ "$relative" == */ || "$relative" == *"//"* ]] ||
